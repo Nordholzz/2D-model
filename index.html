@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>3D Eye Model - Follows Cursor</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            background: #000;
+            font-family: Arial, sans-serif;
+            cursor: none;
+        }
+        canvas { 
+            display: block; 
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 100;
+        }
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        #cursor {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #ff0000;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Загрузка модели глаза...</div>
+    <div class="info">Глаз следит за курсором • Перетаскивайте для вращения камеры</div>
+    <div id="cursor"></div>
+
+    <!-- Three.js и необходимые плагины -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.min.js"></script>
+
+    <script>
+        // Основные переменные
+        let scene, camera, renderer, controls, eyeModel;
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+        let currentRotationX = 0, currentRotationY = 0;
+
+        // Инициализация сцены
+        function init() {
+            // Создание сцены
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111111);
+
+            // Создание камеры
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.001, 10);
+            camera.position.set(0, 0, 0.3);
+
+            // Создание рендерера
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: true, 
+                alpha: true 
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            document.body.appendChild(renderer.domElement);
+
+            // Настройка освещения
+            setupLighting();
+
+            // Настройка управления
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.rotateSpeed = 0.8;
+            controls.zoomSpeed = 0.3;
+            controls.minDistance = 0.05;
+            controls.maxDistance = 2;
+            controls.target.set(0, 0, 0);
+
+            // Обработчики движения мыши
+            setupMouseHandlers();
+
+            // Загрузка модели
+            loadEyeModel();
+
+            // Обработка изменения размера окна
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // Настройка обработчиков мыши
+        function setupMouseHandlers() {
+            const cursor = document.getElementById('cursor');
+            
+            document.addEventListener('mousemove', (event) => {
+                // Нормализованные координаты мыши (-1 до 1)
+                mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+                mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+                
+                // Целевое вращение глаза (ограничиваем угол)
+                targetRotationY = mouseX * Math.PI / 6; // ±30 градусов
+                targetRotationX = mouseY * Math.PI / 6; // ±30 градусов
+                
+                // Показываем и перемещаем курсор
+                cursor.style.display = 'block';
+                cursor.style.left = event.clientX + 'px';
+                cursor.style.top = event.clientY + 'px';
+            });
+            
+            document.addEventListener('mouseleave', () => {
+                // Плавно возвращаем глаз в центр когда мышь ушла
+                targetRotationX = 0;
+                targetRotationY = 0;
+                cursor.style.display = 'none';
+            });
+        }
+
+        // Настройка освещения
+        function setupLighting() {
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+            directionalLight1.position.set(1, 2, 3);
+            scene.add(directionalLight1);
+
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+            directionalLight2.position.set(-1, -1, -2);
+            scene.add(directionalLight2);
+        }
+
+        // Загрузка модели глаза
+        function loadEyeModel() {
+            const loader = new THREE.GLTFLoader();
+            
+            const modelUrl = 'https://raw.githubusercontent.com/Nordholzz/2D-model/main/eye_free_model_3d_by_oscar_creativo/scene.gltf';
+            
+            loader.load(
+                modelUrl,
+                function(gltf) {
+                    eyeModel = gltf.scene;
+                    setupModel(eyeModel);
+                    scene.add(eyeModel);
+                    
+                    document.getElementById('loading').style.display = 'none';
+                    console.log('Модель загружена! Глаз следит за курсором');
+                },
+                function(xhr) {
+                    const progress = (xhr.loaded / xhr.total * 100).toFixed(1);
+                    document.getElementById('loading').textContent = `Загрузка: ${progress}%`;
+                },
+                function(error) {
+                    console.error('Ошибка загрузки:', error);
+                    document.getElementById('loading').textContent = 'Ошибка загрузки';
+                }
+            );
+        }
+
+        // Настройка загруженной модели
+        function setupModel(model) {
+            // Масштабируем модель
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            const scale = 1.5 / maxDim;
+            model.scale.set(scale, scale, scale);
+            
+            // ПОВОРАЧИВАЕМ МОДЕЛЬ НА 90° ВОКРУГ ОСИ Y (по часовой стрелке в плоскости XZ)
+            model.rotation.y = Math.PI / 2; // 90 градусов
+            
+            // Настраиваем камеру
+            camera.position.set(0, 0, size.z * 1.2);
+            controls.update();
+            
+            // Сохраняем исходное вращение модели
+            model.userData.originalRotation = model.rotation.clone();
+        }
+
+        // Плавное вращение глаза к цели
+        function updateEyeRotation() {
+            if (!eyeModel) return;
+            
+            // Плавная интерполяция
+            const smoothness = 0.1;
+            currentRotationX += (targetRotationX - currentRotationX) * smoothness;
+            currentRotationY += (targetRotationY - currentRotationY) * smoothness;
+            
+            // Применяем вращение к модели (добавляем к базовому повороту)
+            eyeModel.rotation.x = -currentRotationX;
+            eyeModel.rotation.y = (-Math.PI / 2 + currentRotationY); // Базовый поворот + слежение
+        }
+
+        // Обработка изменения размера окна
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Анимационный цикл
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Обновляем вращение глаза
+            updateEyeRotation();
+            
+            // Обновление управления
+            controls.update();
+            
+            // Рендеринг сцены
+            renderer.render(scene, camera);
+        }
+
+        // Запуск приложения
+        init();
+        animate();
+
+    </script>
+</body>
+</html>
