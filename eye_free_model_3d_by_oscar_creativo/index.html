@@ -27,7 +27,7 @@
             border-radius: 10px;
             z-index: 100;
         }
-        .info {
+        .credits {
             position: absolute;
             bottom: 20px;
             left: 20px;
@@ -36,6 +36,15 @@
             padding: 10px;
             border-radius: 5px;
             font-size: 12px;
+            opacity: 0.7;
+            line-height: 1.4;
+        }
+        .credits a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .credits a:hover {
+            text-decoration: underline;
         }
         #cursor {
             position: absolute;
@@ -48,11 +57,35 @@
             transform: translate(-50%, -50%);
             display: none;
         }
+        #reset-hint {
+            position: absolute;
+            bottom: 70px;
+            left: 20px;
+            color: #aaa;
+            font-size: 11px;
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
     <div id="loading">Загрузка модели глаза...</div>
-    <div class="info">Глаз следит за курсором • Перетаскивайте для вращения камеры</div>
+    
+    <div class="credits">
+        This work is based on 
+        <a href="https://sketchfab.com/3d-models/eye-free-model-3d-by-oscar-creativo-5d466ea41c874fc5b376c92a313a9bb3">
+            "EYE FREE MODEL 3D BY Oscar creativo"
+        </a> 
+        by 
+        <a href="https://sketchfab.com/oscar_creativo">
+            OSCAR CREATIVO
+        </a> 
+        licensed under 
+        <a href="http://creativecommons.org/licenses/by/4.0/">
+            CC-BY-4.0
+        </a>
+    </div>
+    
+    <div id="reset-hint"></div>
     <div id="cursor"></div>
 
     <!-- Three.js и необходимые плагины -->
@@ -66,6 +99,13 @@
         let mouseX = 0, mouseY = 0;
         let targetRotationX = 0, targetRotationY = 0;
         let currentRotationX = 0, currentRotationY = 0;
+        let isMouseDown = false;
+        let resetTimeout = null;
+
+        // Сохраняем исходные позиции
+        const originalCameraPosition = new THREE.Vector3(0, 0, 0.3);
+        const originalCameraTarget = new THREE.Vector3(0, 0, 0);
+        const originalEyeRotation = new THREE.Euler(0, Math.PI / 2, 0); // 90° по Y
 
         // Инициализация сцены
         function init() {
@@ -75,7 +115,7 @@
 
             // Создание камеры
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.001, 10);
-            camera.position.set(0, 0, 0.3);
+            camera.position.copy(originalCameraPosition);
 
             // Создание рендерера
             renderer = new THREE.WebGLRenderer({ 
@@ -100,9 +140,9 @@
             controls.zoomSpeed = 0.3;
             controls.minDistance = 0.05;
             controls.maxDistance = 2;
-            controls.target.set(0, 0, 0);
+            controls.target.copy(originalCameraTarget);
 
-            // Обработчики движения мыши
+            // Обработчики событий мыши
             setupMouseHandlers();
 
             // Загрузка модели
@@ -115,7 +155,36 @@
         // Настройка обработчиков мыши
         function setupMouseHandlers() {
             const cursor = document.getElementById('cursor');
+            const resetHint = document.getElementById('reset-hint');
             
+            // События нажатия кнопки мыши
+            document.addEventListener('mousedown', (event) => {
+                if (event.button === 0 || event.button === 2) { // Левая или правая кнопка
+                    isMouseDown = true;
+                    resetHint.style.opacity = '1';
+                    
+                    // Отменяем предыдущий таймер сброса
+                    if (resetTimeout) {
+                        clearTimeout(resetTimeout);
+                        resetTimeout = null;
+                    }
+                }
+            });
+            
+            // События отпускания кнопки мыши
+            document.addEventListener('mouseup', (event) => {
+                if (event.button === 0 || event.button === 2) {
+                    isMouseDown = false;
+                    
+                    // Запускаем плавный возврат через 0.5 секунды после отпускания
+                    resetTimeout = setTimeout(() => {
+                        resetToOriginalPosition();
+                        resetHint.style.opacity = '0.8';
+                    }, 500);
+                }
+            });
+            
+            // Движение мыши
             document.addEventListener('mousemove', (event) => {
                 // Нормализованные координаты мыши (-1 до 1)
                 mouseX = (event.clientX / window.innerWidth) * 2 - 1;
@@ -129,6 +198,11 @@
                 cursor.style.display = 'block';
                 cursor.style.left = event.clientX + 'px';
                 cursor.style.top = event.clientY + 'px';
+                
+                // Если мышь нажата, показываем подсказку
+                if (isMouseDown) {
+                    resetHint.style.opacity = '1';
+                }
             });
             
             document.addEventListener('mouseleave', () => {
@@ -136,7 +210,54 @@
                 targetRotationX = 0;
                 targetRotationY = 0;
                 cursor.style.display = 'none';
+                
+                // Если мышь ушла с нажатой кнопкой, сбрасываем
+                if (isMouseDown) {
+                    isMouseDown = false;
+                    resetToOriginalPosition();
+                }
             });
+        }
+
+        // Возврат в исходное положение
+        function resetToOriginalPosition() {
+            if (!eyeModel) return;
+            
+            // Плавный возврат камеры
+            animateCameraToOriginal();
+            
+            // Плавный возврат глаза в исходное вращение
+            targetRotationX = 0;
+            targetRotationY = 0;
+            
+            // Сбрасываем управление OrbitControls
+            controls.reset();
+        }
+
+        // Плавная анимация камеры к исходной позиции
+        function animateCameraToOriginal() {
+            const startPosition = camera.position.clone();
+            const startTarget = controls.target.clone();
+            const duration = 1000; // 1 секунда
+            const startTime = Date.now();
+            
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // Плавная интерполяция
+                const easeProgress = 1 - Math.pow(1 - progress, 3); // Кубическое замедление
+                
+                camera.position.lerpVectors(startPosition, originalCameraPosition, easeProgress);
+                controls.target.lerpVectors(startTarget, originalCameraTarget, easeProgress);
+                controls.update();
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                }
+            }
+            
+            animate();
         }
 
         // Настройка освещения
@@ -190,11 +311,12 @@
             const scale = 1.5 / maxDim;
             model.scale.set(scale, scale, scale);
             
-            // ПОВОРАЧИВАЕМ МОДЕЛЬ НА 90° ВОКРУГ ОСИ Y (по часовой стрелке в плоскости XZ)
+            // ПОВОРАЧИВАЕМ МОДЕЛЬ НА 90° ВОКРУГ ОСИ Y
             model.rotation.y = Math.PI / 2; // 90 градусов
             
             // Настраиваем камеру
             camera.position.set(0, 0, size.z * 1.2);
+            originalCameraPosition.set(0, 0, size.z * 1.2);
             controls.update();
             
             // Сохраняем исходное вращение модели
